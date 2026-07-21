@@ -39,9 +39,14 @@ class Settings(BaseSettings):
         )
 
     # --- Local ML models ---
-    EMBEDDING_MODEL: str = "BAAI/bge-m3"
-    EMBEDDING_DIMENSION: int = 1024
-    RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
+    # Defaults are tuned for a RAM-limited VPS (~400 MB total ML footprint).
+    # bge-small-en-v1.5:      ~130 MB, 384-d, English-only (matches arXiv corpus).
+    # ms-marco-MiniLM-L-6-v2: ~90 MB, English-only, fast on CPU.
+    # EMBEDDING_DIMENSION must match the model output AND the VECTOR(N)
+    # column in sql/schema.sql — changing this requires a re-index.
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_DIMENSION: int = 384
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     MODEL_DEVICE: str = "cpu"  # cpu | mps | cuda
 
     # --- arXiv ---

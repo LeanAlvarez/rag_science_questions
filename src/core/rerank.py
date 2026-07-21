@@ -6,12 +6,14 @@ INDEPENDENTLY and then compares them — fast but coarse. A cross-encoder feeds
 score — much more accurate on the last mile, but too slow to score the whole
 corpus. So we only rerank the top-K survivors from hybrid retrieval.
 
-Model: BAAI/bge-reranker-v2-m3.
-  * Multilingual.
-  * ~600 MB weights (small enough for CPU).
+Default model: cross-encoder/ms-marco-MiniLM-L-6-v2.
+  * English-only (matches the English arXiv corpus).
+  * ~90 MB weights, ~120 MB RAM — fast on CPU, ideal for a small VPS.
   * Outputs an UNBOUNDED logit; higher = more relevant. Negative scores are
     fine and mean "probably not relevant". Do NOT interpret the score as a
     probability without a sigmoid.
+Swappable via RERANKER_MODEL (e.g. BAAI/bge-reranker-base for multilingual
+at ~3x the RAM cost).
 """
 from __future__ import annotations
 

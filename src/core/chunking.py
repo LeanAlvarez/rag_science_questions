@@ -1,10 +1,12 @@
 """Text → list of overlapping chunks, sized in TOKENS not characters.
 
 Why the embedding model's own tokenizer (not tiktoken, not char count):
-  bge-m3 counts tokens with its own SentencePiece vocab. If we bound chunks
-  by characters or by an OpenAI tokenizer, we can silently overshoot the
-  model's 8192-token context, or waste embedding capacity by undershooting.
-  Loading only the tokenizer (a few MB, not the 2 GB model weights) is cheap.
+  Each embedding model has its own vocabulary (bge-small-en-v1.5 uses BERT
+  WordPiece; bge-m3 used SentencePiece). If we bound chunks by characters
+  or by an OpenAI tokenizer, we can silently overshoot the model's context
+  window (512 tokens for bge-small-en-v1.5), or waste embedding capacity by
+  undershooting. Loading only the tokenizer (a few MB, not the full model
+  weights) is cheap. CHUNK_SIZE_TOKENS should stay ≤ 512 for the default model.
 
 Strategy:
   1. Split the text on blank lines into paragraphs.

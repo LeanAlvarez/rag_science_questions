@@ -39,7 +39,7 @@ flowchart LR
         direction TB
         A[arXiv API<br/>Atom feed] -->|rate-limited<br/>≤1 req / 3s| F[Fetch]
         F --> CH[Chunk + hash]
-        CH --> E[Embed local<br/>bge-m3]
+        CH --> E[Embed local<br/>bge-small-en-v1.5]
         E --> UP[Upsert<br/>transaccional]
     end
 
@@ -74,8 +74,8 @@ flowchart LR
 |---|---|---|
 | **Ingesta** | `httpx` · `feedparser` · `tenacity` | Rate limiter interno + retries con backoff diferenciados (429 vs 5xx vs otros 4xx) |
 | **Storage** | PostgreSQL 16 · pgvector (HNSW cosine) · GIN full-text | Una única DB para todo, transacciones consistentes |
-| **Embeddings** | sentence-transformers · `BAAI/bge-m3` (1024-d) | Local, gratis, corre en CPU o MPS |
-| **Rerank** | `BAAI/bge-reranker-v2-m3` (cross-encoder) | Precisión sobre los 20 supervivientes del retrieval |
+| **Embeddings** | sentence-transformers · `BAAI/bge-small-en-v1.5` (384-d, ~130 MB) | Local, gratis, corre en CPU o MPS |
+| **Rerank** | `cross-encoder/ms-marco-MiniLM-L-6-v2` (~90 MB) | Precisión sobre los 20 supervivientes del retrieval — chico y estable en CPU |
 | **Retrieval** | Vector `<=>` cosine + `websearch_to_tsquery` fusionados con RRF (k=60) | Los errores del semántico y del keyword no correlacionan |
 | **Generación** | OpenRouter · modelos `:free` con fallback ordenado | Costo cero, resiliente al churn del free tier |
 | **API web** | FastAPI · Server-Sent Events | Streaming del `context` event ANTES del primer token |
@@ -100,7 +100,7 @@ flowchart LR
 
 7. **Fallback SOLO en el handshake del stream.** Una vez que emit­iste tokens, no podés cambiar de modelo sin corromper lo que el cliente ya renderizó. El flag `yielded` en `complete_stream` marca ese punto de no retorno.
 
-8. **Tokenizer real del modelo para chunking.** El chunker usa `AutoTokenizer.from_pretrained("BAAI/bge-m3")` — pesa unos MB, no los 2 GB del modelo entero. Así los conteos de token son EXACTOS, no aproximados con tiktoken o caracteres.
+8. **Tokenizer real del modelo para chunking.** El chunker usa `AutoTokenizer.from_pretrained(settings.EMBEDDING_MODEL)` — solo el tokenizer (pocos MB), no los pesos completos. Así los conteos de token son EXACTOS, no aproximados con tiktoken o caracteres, y el `CHUNK_SIZE_TOKENS=400` respeta el context window del modelo (512 tokens en `bge-small-en-v1.5`).
 
 9. **Costo total: cero USD.** Embeddings + rerank corren local en CPU/MPS. Postgres + pgvector local. Generación via free-tier OpenRouter. Cero llamadas pagas.
 
@@ -168,15 +168,15 @@ rag_science_questions/
 ├── docker-compose.yml            # Postgres 16 + pgvector
 ├── env.example                   # plantilla de config (copiar a .env)
 ├── pyproject.toml                # deps Python (uv)
-├── sql/schema.sql                # active_categories, ingested_papers, chunks (VECTOR 1024)
+├── sql/schema.sql                # active_categories, ingested_papers, chunks (VECTOR 384)
 └── src/
     ├── config.py                 # pydantic-settings, valida env al arrancar
     ├── db.py                     # pool psycopg3 + adaptador pgvector
     ├── core/                     # motor compartido (agnóstico de interfaz)
-    │   ├── embeddings.py         # bge-m3 local, lazy-loaded
+    │   ├── embeddings.py         # bge-small-en-v1.5 local, lazy-loaded
     │   ├── chunking.py           # tokens exactos del modelo, con overlap
     │   ├── retrieval.py          # vector + FTS + RRF fusion
-    │   ├── rerank.py             # cross-encoder BAAI/bge-reranker-v2-m3
+    │   ├── rerank.py             # cross-encoder ms-marco-MiniLM-L-6-v2
     │   └── generation.py         # OpenRouter fallback + SSE parser
     ├── ingest/                   # PROCESO 1
     │   ├── arxiv_client.py       # httpx + feedparser + rate limiter
@@ -224,8 +224,8 @@ See the diagram above (Mermaid).
 |---|---|---|
 | **Ingestion** | `httpx` · `feedparser` · `tenacity` | Built-in rate limiter + differentiated retry (429 vs 5xx vs other 4xx) |
 | **Storage** | PostgreSQL 16 · pgvector (HNSW cosine) · GIN full-text | One DB for everything, consistent transactions |
-| **Embeddings** | sentence-transformers · `BAAI/bge-m3` (1024-d) | Local, free, runs on CPU or Apple MPS |
-| **Rerank** | `BAAI/bge-reranker-v2-m3` (cross-encoder) | Precision over the top-20 survivors from retrieval |
+| **Embeddings** | sentence-transformers · `BAAI/bge-small-en-v1.5` (384-d, ~130 MB) | Local, free, runs on CPU or Apple MPS |
+| **Rerank** | `cross-encoder/ms-marco-MiniLM-L-6-v2` (~90 MB) | Precision over the top-20 survivors from retrieval — small and CPU-stable |
 | **Retrieval** | Vector `<=>` cosine + `websearch_to_tsquery` fused with RRF (k=60) | Semantic-search errors don't correlate with keyword errors |
 | **Generation** | OpenRouter · `:free` models with ordered fallback | Zero-cost, resilient to free-tier churn |
 | **Web API** | FastAPI · Server-Sent Events | `context` event BEFORE the first token |
@@ -250,7 +250,7 @@ See the diagram above (Mermaid).
 
 7. **Model fallback ONLY at the streaming handshake.** Once tokens have been emitted, the model can't be swapped without corrupting what the client already rendered. The `yielded` flag in `complete_stream` marks that point of no return.
 
-8. **The model's own tokenizer for chunking.** The chunker uses `AutoTokenizer.from_pretrained("BAAI/bge-m3")` — a few MB, not the 2 GB full model. Token counts are EXACT, not approximations from tiktoken or character counts.
+8. **The model's own tokenizer for chunking.** The chunker uses `AutoTokenizer.from_pretrained(settings.EMBEDDING_MODEL)` — tokenizer only (a few MB), not the full weights. Token counts are EXACT, not approximations from tiktoken or character counts, and `CHUNK_SIZE_TOKENS=400` stays safely within the model's context (512 tokens for `bge-small-en-v1.5`).
 
 9. **Total cost: zero USD.** Embeddings + rerank run local on CPU/MPS. Postgres + pgvector local. Generation via OpenRouter free tier. Zero paid API calls.
 

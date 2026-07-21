@@ -50,9 +50,9 @@ class Candidate:
 def vector_search(query_vec: np.ndarray, *, top_k: int) -> list[Candidate]:
     """K-nearest-neighbour search over chunk embeddings (cosine, HNSW-indexed).
 
-    `<=>` is pgvector's cosine DISTANCE. For L2-normalized vectors (bge-m3 gives
-    us those) `1 - distance == cosine similarity`, which we expose so callers
-    can reason about "how similar" in the usual [-1, 1] range.
+    `<=>` is pgvector's cosine DISTANCE. For L2-normalized vectors (bge-*
+    models give us those) `1 - distance == cosine similarity`, which we expose
+    so callers can reason about "how similar" in the usual [-1, 1] range.
     """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(

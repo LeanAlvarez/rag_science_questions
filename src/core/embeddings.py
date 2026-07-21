@@ -1,10 +1,12 @@
 """Local embedding model wrapper.
 
-Loads sentence-transformers on first use (~2 GB weights, one-time), then
-serves batched encode() calls cheaply.
+Loads sentence-transformers on first use (weights are downloaded once and
+cached), then serves batched encode() calls cheaply.
 
-bge-m3 returns L2-normalized 1024-d vectors, which is why the pgvector index
-in sql/schema.sql uses vector_cosine_ops.
+The default model (bge-small-en-v1.5) returns L2-normalized 384-d vectors,
+which is why the pgvector index in sql/schema.sql uses vector_cosine_ops.
+If you swap models: update EMBEDDING_MODEL, EMBEDDING_DIMENSION, and the
+VECTOR(N) column in sql/schema.sql, then re-index the corpus.
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ def embed(texts: list[str], *, batch_size: int = 16) -> np.ndarray:
     vectors = _model().encode(
         texts,
         batch_size=batch_size,
-        normalize_embeddings=True,  # bge-m3 expects/recommends L2-normalized
+        normalize_embeddings=True,  # bge-* models expect/recommend L2-normalized
         convert_to_numpy=True,
         show_progress_bar=False,
     )

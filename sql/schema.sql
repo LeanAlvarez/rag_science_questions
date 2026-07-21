@@ -51,8 +51,12 @@ CREATE INDEX IF NOT EXISTS ingested_papers_published_idx
 -- -----------------------------------------------------------------------------
 -- chunks: text fragments + embedding + generated tsvector for hybrid retrieval.
 --
--- VECTOR(1024) is chosen to match BAAI/bge-m3. If you switch embedding model,
--- update BOTH this dimension AND the EMBEDDING_DIMENSION env var.
+-- VECTOR(384) is chosen to match BAAI/bge-small-en-v1.5 (the default, tuned
+-- for a RAM-limited VPS). If you switch embedding model, update BOTH this
+-- dimension AND the EMBEDDING_DIMENSION env var. Since pgvector column types
+-- are fixed at CREATE, changing the dimension on an existing DB requires:
+--   docker compose down -v && docker compose up -d
+-- (or ALTER TABLE + re-embed everything).
 --
 -- ON DELETE CASCADE on the FK means a DELETE on ingested_papers wipes all its
 -- chunks in one shot — useful when a paper is removed from the corpus.
@@ -64,14 +68,14 @@ CREATE TABLE IF NOT EXISTS chunks (
     arxiv_id    TEXT        NOT NULL REFERENCES ingested_papers(arxiv_id) ON DELETE CASCADE,
     chunk_index INT         NOT NULL,
     content     TEXT        NOT NULL,
-    embedding   VECTOR(1024) NOT NULL,
+    embedding   VECTOR(384) NOT NULL,
     content_tsv TSVECTOR    GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (arxiv_id, chunk_index)
 );
 
 -- HNSW index on the vector column: fast approximate nearest neighbour.
--- vector_cosine_ops matches normalized embeddings (bge-m3 outputs are L2-normalized).
+-- vector_cosine_ops matches normalized embeddings (bge-* outputs are L2-normalized).
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw
     ON chunks USING hnsw (embedding vector_cosine_ops);
 
