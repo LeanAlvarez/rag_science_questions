@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------------------- */
+/* Design tokens, shadcn-flavored, adapted to Tailwind v4's CSS-first config. */
+/* Switch light/dark by toggling the `dark` class on <html>.                  */
+/* -------------------------------------------------------------------------- */
+:root {
+  --background:         hsl(0 0% 100%);
+  --foreground:         hsl(240 10% 3.9%);
+  --card:               hsl(0 0% 100%);
+  --card-foreground:    hsl(240 10% 3.9%);
+  --muted:              hsl(240 4.8% 95.9%);
+  --muted-foreground:   hsl(240 3.8% 46.1%);
+  --primary:            hsl(240 5.9% 10%);
+  --primary-foreground: hsl(0 0% 98%);
+  --accent:             hsl(240 4.8% 95.9%);
+  --accent-foreground:  hsl(240 5.9% 10%);
+  --border:             hsl(240 5.9% 90%);
+  --input:              hsl(240 5.9% 90%);
+  --ring:               hsl(240 5.9% 10%);
+  --destructive:        hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --radius:             0.65rem;
+}
+
+.dark {
+  --background:         hsl(240 10% 3.9%);
+  --foreground:         hsl(0 0% 98%);
+  --card:               hsl(240 8% 6%);
+  --card-foreground:    hsl(0 0% 98%);
+  --muted:              hsl(240 3.7% 15.9%);
+  --muted-foreground:   hsl(240 5% 64.9%);
+  --primary:            hsl(0 0% 98%);
+  --primary-foreground: hsl(240 5.9% 10%);
+  --accent:             hsl(240 3.7% 15.9%);
+  --accent-foreground:  hsl(0 0% 98%);
+  --border:             hsl(240 3.7% 15.9%);
+  --input:              hsl(240 3.7% 15.9%);
+  --ring:               hsl(240 4.9% 83.9%);
+  --destructive:        hsl(0 62% 55%);
+  --destructive-foreground: hsl(0 0% 98%);
+}
+
+/* Expose the tokens above as first-class Tailwind utilities:
+   `bg-background`, `text-foreground`, `border-border`, etc. */
+@theme inline {
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-muted:              var(--muted);
+  --color-muted-foreground:   var(--muted-foreground);
+  --color-primary:            var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent:             var(--accent);
+  --color-accent-foreground:  var(--accent-foreground);
+  --color-border:             var(--border);
+  --color-input:              var(--input);
+  --color-ring:               var(--ring);
+  --color-destructive:        var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Blinking cursor for the streaming answer. Subtle, monospace-vibe. */
+@keyframes blink {
+  0%, 60% { opacity: 1; }
+  60.01%, 100% { opacity: 0; }
+}
+.cursor-blink {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: currentColor;
+  margin-left: 2px;
+  animation: blink 1s steps(2, start) infinite;
+}

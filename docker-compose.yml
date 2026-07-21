@@ -1,0 +1,28 @@
+# Postgres 16 with the pgvector extension pre-installed.
+# The schema in ./sql/schema.sql is auto-executed on FIRST container start
+# (postgres runs everything in /docker-entrypoint-initdb.d exactly once,
+# only when the data volume is empty).
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: arxiv-rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arxiv_rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arxiv_rag_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-arxiv_rag}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-arxiv_rag} -d ${POSTGRES_DB:-arxiv_rag}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
