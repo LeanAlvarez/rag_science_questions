@@ -82,6 +82,18 @@ class Settings(BaseSettings):
 
     # --- Telegram (Phase 5) ---
     TELEGRAM_BOT_TOKEN: str = ""
+    # Comma-separated Telegram user IDs allowed to talk to the bot. Empty =
+    # allow anyone (dev / testing). Populate for private use.
+    TELEGRAM_ALLOWED_USER_IDS: str = ""
+
+    @property
+    def telegram_allowed_user_ids_list(self) -> list[int]:
+        """Parsed allowlist. Non-numeric entries are silently dropped."""
+        return [
+            int(x.strip())
+            for x in self.TELEGRAM_ALLOWED_USER_IDS.split(",")
+            if x.strip().lstrip("-").isdigit()
+        ]
 
     # --- Web (Phase 4) ---
     WEB_HOST: str = "127.0.0.1"

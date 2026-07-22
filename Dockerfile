@@ -98,12 +98,14 @@ COPY --from=frontend-builder --chown=app:app /app/static /app/src/web/static
 
 # Application source — explicit per-subdir COPY so the runtime image only
 # ships what the running app actually imports. src/web/frontend/ is NOT
-# copied (its built output landed at src/web/static in the previous COPY);
-# src/bot/ is a placeholder for Phase 5 and has no runnable code yet.
+# copied (its built output landed at src/web/static in the previous COPY).
+# src/bot/ IS copied — the FastAPI lifespan boots it alongside the web when
+# TELEGRAM_BOT_TOKEN is set (shares the interpreter to save VPS RAM).
 COPY --chown=app:app src/__init__.py src/config.py src/db.py /app/src/
 COPY --chown=app:app src/core/                                /app/src/core/
 COPY --chown=app:app src/ingest/                              /app/src/ingest/
 COPY --chown=app:app src/query/                               /app/src/query/
+COPY --chown=app:app src/bot/                                 /app/src/bot/
 COPY --chown=app:app src/web/__init__.py src/web/api.py src/web/run_api.py /app/src/web/
 
 # Runtime environment:

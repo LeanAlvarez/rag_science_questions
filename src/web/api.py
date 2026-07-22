@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from src.bot.telegram_bot import start_bot, stop_bot
 from src.config import settings
 from src.core.generation import NoModelSucceeded
 from src.query.pipeline import (
@@ -33,10 +35,42 @@ from src.query.pipeline import (
 
 log = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Boot the Telegram bot alongside the web when a token is configured.
+
+    Running the bot in-process with uvicorn means:
+      * one Python interpreter → torch/sentence-transformers/DB pool loaded once;
+      * one shared asyncio loop → simple lifecycle, cheap on a small VPS.
+
+    If TELEGRAM_BOT_TOKEN is empty the bot is skipped silently (useful for local
+    dev). If the bot fails to start we log and continue — the web must survive
+    Telegram outages.
+    """
+    bot_app = None
+    if settings.TELEGRAM_BOT_TOKEN:
+        try:
+            bot_app = await start_bot()
+            log.info("Telegram bot started (long polling)")
+        except Exception:  # noqa: BLE001 — web must stay up even if bot dies
+            log.exception("Failed to start Telegram bot; web will run without it")
+    else:
+        log.info("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
+
+    try:
+        yield
+    finally:
+        if bot_app is not None:
+            await stop_bot(bot_app)
+            log.info("Telegram bot stopped")
+
+
 app = FastAPI(
     title="arxiv-rag",
-    description="RAG over arXiv papers — Phase 4 web API.",
+    description="RAG over arXiv papers — Phase 4 web + Phase 5 Telegram bot.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 if settings.web_allowed_origins_list:
