@@ -3,6 +3,11 @@
 Usage:
     uv run python -m src.ingest.run_ingest backfill cs.CL [--max-papers 500]
     uv run python -m src.ingest.run_ingest incremental
+
+Exit codes (scheduler-friendly):
+    0    completed cleanly (may include per-category failures logged inline)
+    1    unhandled error — see traceback in logs
+    130  interrupted (SIGINT / Ctrl-C)
 """
 from __future__ import annotations
 
@@ -14,12 +19,16 @@ from src.db import close_pool
 from src.ingest.backfill import run_backfill
 from src.ingest.incremental import IngestStats, run_incremental
 
+log = logging.getLogger("run_ingest")
+
 
 def _configure_logging() -> None:
+    # Full date in the timestamp — scheduled runs are read hours or days later,
+    # so `%H:%M:%S` alone is not enough to tell which run a line belongs to.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -78,9 +87,20 @@ def main(argv: list[str] | None = None) -> int:
         else:  # incremental
             stats = run_incremental(page_size=args.page_size)
             _print_summary("INCREMENTAL", stats)
+        return 0
+    except KeyboardInterrupt:
+        # Scheduler sent SIGINT (Ctrl-C in shell, or scheduler shutdown).
+        # Exit with the standard 128+SIGINT so orchestrators can detect it.
+        log.warning("Interrupted")
+        return 130
+    except Exception:
+        # Truly unexpected — per-paper and per-category errors are already
+        # caught downstream. Anything reaching here is a bug or a total-outage
+        # arXiv/DB failure. Log with traceback so the scheduler shows red.
+        log.exception("Ingest run failed with unhandled error")
+        return 1
     finally:
         close_pool()
-    return 0
 
 
 if __name__ == "__main__":

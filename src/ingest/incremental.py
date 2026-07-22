@@ -145,34 +145,49 @@ def process_paper(paper: ArxivPaper) -> str:
 
 
 def run_incremental_for_category(client: ArxivClient, category: str) -> IngestStats:
-    """Walk a category newest-first, stopping once we hit a run of unchanged papers."""
+    """Walk a category newest-first, stopping once we hit a run of unchanged papers.
+
+    Never raises: if arXiv errors out mid-walk (e.g. exhausted 429 retries) or
+    the DB blips, we log and return whatever partial stats we accumulated. The
+    outer `run_incremental()` will then move on to the next category instead
+    of aborting the whole scheduled run.
+    """
     stats = IngestStats()
     unchanged_streak = 0
 
-    for paper in client.iter_category(category):
-        stats.seen += 1
-        try:
-            outcome = process_paper(paper)
-        except Exception:  # noqa: BLE001 — one bad paper shouldn't kill the pass
-            log.exception("Failed to process %s", paper.arxiv_id)
-            stats.failed += 1
-            continue
+    try:
+        for paper in client.iter_category(category):
+            stats.seen += 1
+            try:
+                outcome = process_paper(paper)
+            except Exception:  # noqa: BLE001 — one bad paper shouldn't kill the pass
+                log.exception("Failed to process %s", paper.arxiv_id)
+                stats.failed += 1
+                continue
 
-        if outcome == "inserted":
-            stats.inserted += 1
-            unchanged_streak = 0
-        elif outcome == "reindexed":
-            stats.reindexed += 1
-            unchanged_streak = 0
-        else:
-            stats.skipped_unchanged += 1
-            unchanged_streak += 1
-            if unchanged_streak >= STOP_AFTER_UNCHANGED:
-                log.info(
-                    "%s: %d consecutive unchanged papers → assuming caught up",
-                    category, unchanged_streak,
-                )
-                break
+            if outcome == "inserted":
+                stats.inserted += 1
+                unchanged_streak = 0
+            elif outcome == "reindexed":
+                stats.reindexed += 1
+                unchanged_streak = 0
+            else:
+                stats.skipped_unchanged += 1
+                unchanged_streak += 1
+                if unchanged_streak >= STOP_AFTER_UNCHANGED:
+                    log.info(
+                        "%s: %d consecutive unchanged papers → assuming caught up",
+                        category, unchanged_streak,
+                    )
+                    break
+    except Exception:  # noqa: BLE001 — see docstring: category failure ≠ run failure
+        log.exception(
+            "Category %s aborted after %d papers "
+            "(inserted=%d reindexed=%d skipped=%d failed=%d); "
+            "moving on to next category",
+            category, stats.seen, stats.inserted, stats.reindexed,
+            stats.skipped_unchanged, stats.failed,
+        )
     return stats
 
 

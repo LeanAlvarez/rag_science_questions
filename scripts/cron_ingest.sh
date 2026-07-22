@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
-# Wrapper the scheduler calls. Placeholder for Phase 6 — filled in once the
-# incremental ingest CLI (Phase 1) exists and we know the exact invocation.
+# Incremental-ingest wrapper for a classic cron / systemd-timer setup.
+#
+# Not needed when using Dokploy's Schedules tab — Dokploy execs a command
+# directly inside the running container, so it can call the CLI itself:
+#
+#     /app/.venv/bin/python -m src.ingest.run_ingest incremental
+#
+# This wrapper is here as a fallback for hosts where you'd run the ingest
+# from OUTSIDE the container (or without a container at all):
+#
+#     crontab -e
+#     0 */6 * * *  /path/to/repo/scripts/cron_ingest.sh >> /var/log/arxiv-rag-ingest.log 2>&1
+#
 set -euo pipefail
 
-# Example (Phase 6 will finalize this):
-#   cd "$(dirname "$0")/.."
-#   uv run python -m src.ingest.run_ingest --mode incremental
+# Anchor to the repo root so relative imports and .env discovery work no
+# matter where cron invokes us from.
+cd "$(dirname "$0")/.."
 
-echo "cron_ingest.sh: not implemented yet — completed in Phase 6"
-exit 0
+# uv run auto-activates the project's venv AND respects uv.lock, so the deps
+# are always the ones the app was built against.
+exec uv run python -m src.ingest.run_ingest incremental "$@"
