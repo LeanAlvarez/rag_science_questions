@@ -40,18 +40,43 @@ def main(argv: list[str] | None = None) -> int:
     p_back = sub.add_parser("backfill", help="Bulk-load one category (bounded)")
     p_back.add_argument("category", help="arXiv category code, e.g. cs.CL")
     p_back.add_argument("--max-papers", type=int, default=None)
+    p_back.add_argument(
+        "--page-size",
+        type=int,
+        default=None,
+        help=(
+            "arXiv API page size (max_results per request). "
+            "Overrides ARXIV_MAX_RESULTS_PER_PAGE for this run. "
+            "Lower this (e.g. 25) if arXiv keeps returning 429."
+        ),
+    )
 
-    sub.add_parser("incremental", help="Fetch only new/changed papers since last run")
+    p_incr = sub.add_parser(
+        "incremental", help="Fetch only new/changed papers since last run"
+    )
+    p_incr.add_argument(
+        "--page-size",
+        type=int,
+        default=None,
+        help=(
+            "arXiv API page size (max_results per request). "
+            "Overrides ARXIV_MAX_RESULTS_PER_PAGE for this run."
+        ),
+    )
 
     args = parser.parse_args(argv)
     _configure_logging()
 
     try:
         if args.mode == "backfill":
-            stats = run_backfill(args.category, max_papers=args.max_papers)
+            stats = run_backfill(
+                args.category,
+                max_papers=args.max_papers,
+                page_size=args.page_size,
+            )
             _print_summary(f"BACKFILL {args.category}", stats)
         else:  # incremental
-            stats = run_incremental()
+            stats = run_incremental(page_size=args.page_size)
             _print_summary("INCREMENTAL", stats)
     finally:
         close_pool()

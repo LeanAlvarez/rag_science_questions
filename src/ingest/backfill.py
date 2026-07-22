@@ -31,13 +31,22 @@ def ensure_category_registered(category: str) -> None:
         )
 
 
-def run_backfill(category: str, *, max_papers: int | None = None) -> IngestStats:
-    """Load up to `max_papers` newest papers from `category`."""
+def run_backfill(
+    category: str,
+    *,
+    max_papers: int | None = None,
+    page_size: int | None = None,
+) -> IngestStats:
+    """Load up to `max_papers` newest papers from `category`.
+
+    `page_size` overrides ARXIV_MAX_RESULTS_PER_PAGE for this run only — useful
+    to lower the per-request cost when arXiv is aggressively rate-limiting.
+    """
     limit = max_papers if max_papers is not None else settings.BACKFILL_MAX_PAPERS
     ensure_category_registered(category)
 
     stats = IngestStats()
-    with ArxivClient() as client:
+    with ArxivClient(page_size=page_size) as client:
         for paper in client.iter_category(category, max_results=limit):
             stats.seen += 1
             try:

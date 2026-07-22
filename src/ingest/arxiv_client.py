@@ -1,18 +1,28 @@
 """Client for the arXiv public API (https://info.arxiv.org/help/api/).
 
 Fetches papers from a category, sorted newest-first, and normalizes each Atom
-entry into an `ArxivPaper`. Two things worth calling out:
+entry into an `ArxivPaper`. Four things worth calling out:
 
   * Rate limiting is ENFORCED in this module, not left up to the caller.
     arXiv asks for at most one request every 3 seconds — we sleep here so no
-    caller can accidentally hammer the API.
+    caller can accidentally hammer the API. The wait also applies BEFORE the
+    first request; a scheduler that restarts the process every few seconds
+    would otherwise burst past the limit.
 
-  * Retries with exponential backoff cover transient network errors and 5xx
-    responses. 4xx responses are NOT retried (they'd never succeed anyway).
+  * The User-Agent is identifiable (project + repo URL). arXiv 429s anonymous
+    or default-python-httpx clients on first contact.
+
+  * Retries: 429 (rate-limited) uses a MUCH longer backoff than 5xx / transport
+    errors — arXiv 429 windows are measured in minutes. When arXiv returns a
+    `Retry-After` header we honor it exactly.
+
+  * `iter_category` never asks arXiv for more entries per page than the caller
+    actually wants (a --max-papers 20 request sends max_results=20, not 100).
 """
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -20,14 +30,21 @@ from datetime import datetime
 
 import feedparser
 import httpx
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import RetryCallState, retry, stop_after_attempt
 
 from src.config import settings
+
+log = logging.getLogger(__name__)
+
+
+# Retry policy — see _should_retry / _wait_policy below.
+_MAX_ATTEMPTS = 6
+# 5xx / TransportError: quick exponential 2..30s. Network blips clear fast.
+_TRANSIENT_WAIT_MIN = 2.0
+_TRANSIENT_WAIT_MAX = 30.0
+# 429: much longer exponential 60..600s. arXiv rate-limit windows are in minutes.
+_RATE_LIMIT_WAIT_MIN = 60.0
+_RATE_LIMIT_WAIT_MAX = 600.0
 
 
 @dataclass(slots=True)
@@ -60,11 +77,16 @@ class ArxivPaper:
 
 
 class _RateLimiter:
-    """Sleeps just enough between calls to respect a minimum interval."""
+    """Sleeps just enough between calls to respect a minimum interval.
+
+    `_last_call` is initialised to "now" (not 0.0), so the very first `.wait()`
+    also blocks for up to `interval` seconds. This prevents a burst-on-startup
+    when the same process is restarted repeatedly by a scheduler.
+    """
 
     def __init__(self, interval_seconds: float) -> None:
         self._interval = interval_seconds
-        self._last_call: float = 0.0
+        self._last_call: float = time.monotonic()
 
     def wait(self) -> None:
         elapsed = time.monotonic() - self._last_call
@@ -74,6 +96,54 @@ class _RateLimiter:
         self._last_call = time.monotonic()
 
 
+def _should_retry(retry_state: RetryCallState) -> bool:
+    """Retry on transient failures only: TransportError, 5xx, 429."""
+    if retry_state.outcome is None:
+        return False
+    exc = retry_state.outcome.exception()
+    if exc is None:
+        return False
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or 500 <= code < 600
+    return False
+
+
+def _wait_policy(retry_state: RetryCallState) -> float:
+    """Pick a backoff length based on WHY the previous attempt failed.
+
+      * 429 with Retry-After header  → honor the header exactly.
+      * 429 without header           → exponential 60..600s.
+      * TransportError / 5xx         → fast exponential 2..30s.
+    """
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    attempt = retry_state.attempt_number  # 1-based: 1 = after first failure
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        retry_after = exc.response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                wait = float(retry_after)
+                log.warning("arXiv 429: honoring Retry-After=%.1fs", wait)
+                return wait
+            except ValueError:
+                # RFC 7231 also allows an HTTP-date form here; we don't parse
+                # it — fall through to the exponential backoff.
+                pass
+        wait = min(
+            _RATE_LIMIT_WAIT_MIN * (2 ** (attempt - 1)), _RATE_LIMIT_WAIT_MAX
+        )
+        log.warning(
+            "arXiv 429 (no Retry-After): backing off %.0fs (attempt %d/%d)",
+            wait, attempt, _MAX_ATTEMPTS,
+        )
+        return wait
+
+    return min(_TRANSIENT_WAIT_MIN * (2 ** (attempt - 1)), _TRANSIENT_WAIT_MAX)
+
+
 class ArxivClient:
     def __init__(
         self,
@@ -81,6 +151,7 @@ class ArxivClient:
         base_url: str | None = None,
         page_size: int | None = None,
         interval_seconds: float | None = None,
+        user_agent: str | None = None,
     ) -> None:
         self._base_url = base_url or settings.ARXIV_API_BASE
         self._page_size = page_size or settings.ARXIV_MAX_RESULTS_PER_PAGE
@@ -93,7 +164,13 @@ class ArxivClient:
             # follow_redirects=True future-proofs against any other permanent
             # move without silently returning a 3xx as if it were success.
             follow_redirects=True,
-            headers={"User-Agent": "arxiv-rag/0.1 (portfolio project)"},
+            headers={
+                # arXiv's Terms of Use ask for an identifiable UA. Anonymous
+                # or default python-httpx UAs get 429'd on first contact.
+                "User-Agent": user_agent or settings.ARXIV_USER_AGENT,
+                # Explicit Accept keeps arXiv's response routing predictable.
+                "Accept": "application/atom+xml",
+            },
         )
 
     def close(self) -> None:
@@ -106,27 +183,25 @@ class ArxivClient:
         self.close()
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type(
-            (httpx.TransportError, httpx.HTTPStatusError)
-        ),
+        stop=stop_after_attempt(_MAX_ATTEMPTS),
+        wait=_wait_policy,
+        retry=_should_retry,
         reraise=True,
     )
-    def _fetch_page(self, *, category: str, start: int) -> feedparser.FeedParserDict:
+    def _fetch_page(
+        self, *, category: str, start: int, page_size: int
+    ) -> feedparser.FeedParserDict:
         self._limiter.wait()
         params = {
             "search_query": f"cat:{category}",
             "start": start,
-            "max_results": self._page_size,
+            "max_results": page_size,
             "sortBy": "submittedDate",
             "sortOrder": "descending",
         }
         resp = self._http.get(self._base_url, params=params)
-        # raise_for_status turns 5xx into HTTPStatusError so tenacity retries.
-        # 4xx also raises but the retry predicate treats it the same way; that's
-        # fine here because 4xx from arXiv (400 bad query, 429 rate-limit) is
-        # transient in practice.
+        # 4xx (except 429) will raise here and NOT be retried — see _should_retry.
+        # 5xx and 429 raise here too, but the retry decorator will catch and back off.
         resp.raise_for_status()
         return feedparser.parse(resp.content)
 
@@ -139,12 +214,24 @@ class ArxivClient:
         """Yield papers from `category`, newest first.
 
         Stops when either `max_results` have been yielded or arXiv returns an
-        empty page.
+        empty page. Never requests more per page than we actually still need —
+        so `max_results=20` sends `max_results=20` to arXiv, not the default
+        page_size of 100.
         """
         emitted = 0
         start = 0
         while True:
-            feed = self._fetch_page(category=category, start=start)
+            if max_results is not None:
+                remaining = max_results - emitted
+                if remaining <= 0:
+                    return
+                this_page = min(self._page_size, remaining)
+            else:
+                this_page = self._page_size
+
+            feed = self._fetch_page(
+                category=category, start=start, page_size=this_page
+            )
             entries = feed.entries or []
             if not entries:
                 return

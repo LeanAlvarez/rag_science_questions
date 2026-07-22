@@ -176,8 +176,12 @@ def run_incremental_for_category(client: ArxivClient, category: str) -> IngestSt
     return stats
 
 
-def run_incremental() -> IngestStats:
-    """Run one incremental pass across all enabled categories."""
+def run_incremental(*, page_size: int | None = None) -> IngestStats:
+    """Run one incremental pass across all enabled categories.
+
+    `page_size` overrides ARXIV_MAX_RESULTS_PER_PAGE for this run only — useful
+    to lower the per-request cost when arXiv is aggressively rate-limiting.
+    """
     with transaction() as conn:
         categories = get_active_categories(conn)
     if not categories:
@@ -188,7 +192,7 @@ def run_incremental() -> IngestStats:
         )
 
     total = IngestStats()
-    with ArxivClient() as client:
+    with ArxivClient(page_size=page_size) as client:
         for category in categories:
             log.info("Incremental pass: category=%s", category)
             per_cat = run_incremental_for_category(client, category)

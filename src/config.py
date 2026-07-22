@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     ARXIV_REQUEST_INTERVAL_SECONDS: float = 3.0
     ARXIV_MAX_RESULTS_PER_PAGE: int = 100
     BACKFILL_MAX_PAPERS: int = 500
+    # arXiv requires an identifiable User-Agent. Default embeds the public
+    # repo URL as contact vector. Override in .env to add a mailto: — e.g.
+    # ARXIV_USER_AGENT="arxiv-rag/1.0 (+https://example.com; mailto:you@x.com)"
+    ARXIV_USER_AGENT: str = (
+        "arxiv-rag/1.0 (+https://github.com/LeanAlvarez/rag_science_questions)"
+    )
 
     # --- Chunking ---
     CHUNK_SIZE_TOKENS: int = 400
