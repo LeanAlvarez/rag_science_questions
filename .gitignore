@@ -51,6 +51,7 @@ dist/
 # Local tooling / editor state
 .atl/
 .claude/
+CLAUDE.md
 
 # Logs
 *.log
