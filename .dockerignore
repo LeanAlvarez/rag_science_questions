@@ -1,0 +1,71 @@
+# =============================================================================
+# What NOT to send to the Docker build context.
+# Reduces upload time to the daemon AND prevents leaking local state
+# (secrets, virtualenvs, caches) into any of the image layers.
+# =============================================================================
+
+# --- Python ---
+# Docker's .dockerignore matches patterns at ROOT unless prefixed with **/,
+# so we use **/ for anything that can appear at any depth (like __pycache__
+# or node_modules inside src/web/frontend/).
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.venv
+.uv-cache
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# --- Node / build tooling ---
+# Excluded EVERYWHERE — Stage 1 runs `npm ci` fresh, doesn't need the local
+# node_modules. Same for build outputs. The **/ prefix is critical here:
+# without it node_modules only matches at the repo root, not inside
+# src/web/frontend/ where it actually lives.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+
+# --- Frontend build output ---
+# Regenerated inside the image by Stage 1 → do not ship the local build.
+src/web/static
+
+# --- Secrets & config ---
+# .env has real API keys. env.example (no dot) is fine but not needed at
+# build time either.
+.env
+.env.*
+!env.example
+
+# --- Version control / metadata ---
+.git
+.gitignore
+.gitattributes
+.github
+
+# --- Local tooling / editor state ---
+.atl
+.claude
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# --- Model / dataset caches (if any leaked into the project dir) ---
+.cache
+models
+
+# --- Docs / brief — not needed at runtime ---
+README.md
+CLAUDE.md
+
+# --- Local dev orchestration — not deployed with the app ---
+docker-compose.yml
+scripts
+
+# --- Docker itself — the daemon reads these separately ---
+Dockerfile
+.dockerignore
+
+# --- Logs ---
+*.log
